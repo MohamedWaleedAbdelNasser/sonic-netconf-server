@@ -20,9 +20,7 @@
 all: yangs
 %:
 	pip3 install chevron==0.14.0
-	pip install chevron==0.14.0
 	pip3 install mmh3
-	pip install mmh3
 	$(MAKE) -f yang_to_openapi.mk $@
 	$(MAKE) -f openapi_codegen.mk $@
 	$(MAKE) -f netconf_codegen.mk $@
