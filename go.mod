@@ -43,5 +43,3 @@ require (
 replace github.com/Azure/sonic-mgmt-common => ../sonic-mgmt-common
 
 go 1.21
-
-toolchain go1.24.1
