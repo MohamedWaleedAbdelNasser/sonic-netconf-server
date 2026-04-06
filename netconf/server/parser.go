@@ -286,6 +286,15 @@ func extractTransactionalRequestByOpTag2(node *xmlquery.Node, opTag string) ([]C
 
 				listOp := getOperation(list, "merge")
 
+				
+				listPath := config.path + "/" + innerContainer.Data + "/" + list.Data
+				var leafListSet map[string]bool
+				if strings.Contains(listPath, "sonic") {
+					leafListSet = netconf_codegen.SonicLeafListFields[listPath]
+				} else {
+					leafListSet = netconf_codegen.CommonLeafListFields[listPath]
+				}
+
 				// Check leafs for atomic operations
 				leafs := xmlquery.Find(list, "./*")
 
@@ -312,7 +321,16 @@ func extractTransactionalRequestByOpTag2(node *xmlquery.Node, opTag string) ([]C
 						leafText, _ = strconv.Unquote(str)
 					}
 
-					listItemData[leafTag] = leafText
+					
+					if leafListSet[leafTag] {
+						if existing, exists := listItemData[leafTag]; exists {
+							listItemData[leafTag] = append(existing.([]interface{}), leafText)
+						} else {
+							listItemData[leafTag] = []interface{}{leafText}
+						}
+					} else {
+						listItemData[leafTag] = leafText
+					}
 				}
 
 				if len(listItemData) != 0 {
@@ -360,6 +378,15 @@ func extractTransactionalRequestByOpTag3(node *xmlquery.Node, opTag string) ([]C
 
 				listOp := getOperation(list, "merge")
 
+				
+				listPath := config.path + "/" + innerContainer.Data + "/" + list.Data
+				var leafListSet map[string]bool
+				if strings.Contains(listPath, "sonic") {
+					leafListSet = netconf_codegen.SonicLeafListFields[listPath]
+				} else {
+					leafListSet = netconf_codegen.CommonLeafListFields[listPath]
+				}
+
 				// Check leafs for atomic operations
 				leafs := xmlquery.Find(list, "./*")
 
@@ -386,7 +413,16 @@ func extractTransactionalRequestByOpTag3(node *xmlquery.Node, opTag string) ([]C
 						leafText, _ = strconv.Unquote(str)
 					}
 
-					listItemData[leafTag] = leafText
+					
+					if leafListSet[leafTag] {
+						if existing, exists := listItemData[leafTag]; exists {
+							listItemData[leafTag] = append(existing.([]interface{}), leafText)
+						} else {
+							listItemData[leafTag] = []interface{}{leafText}
+						}
+					} else {
+						listItemData[leafTag] = leafText
+					}
 				}
 
 				if len(listItemData) != 0 {
