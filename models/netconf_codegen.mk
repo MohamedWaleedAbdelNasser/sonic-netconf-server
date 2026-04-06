@@ -45,7 +45,7 @@ OPENAPI_GEN_PRE  := $(YANGAPI_DIR)/.
 
 OUT_FOLDER = $(YANGAPI_DIR)
 
-all: $(YANGAPI_DIR)/.done $(YANGAPI_DIR)/.sonic_done $(YANGAPI_DIR)/.rpc_done 
+all: $(YANGAPI_DIR)/.done $(YANGAPI_DIR)/.sonic_done $(YANGAPI_DIR)/.rpc_done $(YANGAPI_DIR)/.leaflist_done $(YANGAPI_DIR)/.sonic_leaflist_done
 
 netconf-server-init: $(YANGAPI_DIR)/.init_done
 
@@ -106,6 +106,39 @@ $(YANGAPI_DIR)/.rpc_done: $(SONIC_YANG_MOD_FILES) $(SONIC_YANG_COMMON_FILES) | $
 		-p $(YANGDIR_SONIC_COMMON):$(YANGDIR_SONIC):$(YANGDIR_COMMON) \
 		$(SONIC_YANG_MOD_FILES)
 	@echo "+++++ Generation of RPC string array completed +++++"
+	touch $@
+
+
+#======================================================================
+# Generate Common map for leaf-list fields
+#======================================================================
+$(YANGAPI_DIR)/.leaflist_done:  $(YANG_MOD_FILES) $(YANG_COMMON_FILES) | $(OPENAPI_GEN_PRE)
+	@echo "+++++ Generating Common map for leaf-list fields +++++"
+	mkdir -p $(YANGAPI_DIR)
+	$(PYANG) \
+		-f leaflists \
+		--type Common \
+		--outdir $(OUT_FOLDER) \
+		--plugindir $(PYANG_PLUGIN_DIR) \
+		-p $(YANGDIR_COMMON):$(YANGDIR) \
+		$(YANG_MOD_FILES)
+	@echo "+++++ Generation of Common map for leaf-list fields completed +++++"
+	touch $@
+
+
+#======================================================================
+# Generate Sonic map for leaf-list fields
+#======================================================================
+$(YANGAPI_DIR)/.sonic_leaflist_done: $(SONIC_YANG_MOD_FILES) $(SONIC_YANG_COMMON_FILES) | $(OPENAPI_GEN_PRE)
+	@echo "+++++ Generating Sonic map for leaf-list fields +++++"
+	$(PYANG) \
+		-f leaflists \
+		--outdir $(OUT_FOLDER) \
+		--type Sonic \
+		--plugindir $(PYANG_PLUGIN_DIR) \
+		-p $(YANGDIR_SONIC_COMMON):$(YANGDIR_SONIC):$(YANGDIR_COMMON) \
+		$(SONIC_YANG_MOD_FILES)
+	@echo "+++++ Generation of Sonic map for leaf-list fields completed +++++"
 	touch $@
 
 

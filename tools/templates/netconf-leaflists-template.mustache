@@ -1,0 +1,12 @@
+
+package netconf_codegen
+
+var {{type}}LeafListFields = map[string]map[string]bool{
+    {{#paths}}
+    "{{key}}": {
+        {{#values}}
+            "{{value}}": true,
+        {{/values}}
+    },
+    {{/paths}}
+}
