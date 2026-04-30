@@ -20,6 +20,7 @@ import (
 )
 
 var sessionID uint64
+const sessionIDContextKey = "session-id"
 
 const (
 	delimeter   = "]]>]]>"
@@ -28,6 +29,9 @@ const (
 
 func SessionHandler(s ssh.Session) {
 
+	sid := int(nextSessionID())
+	s.Context().(ssh.Context).SetValue(sessionIDContextKey, sid)
+
 	globalSessionRegistry.Register(sid, s)
 	defer globalSessionRegistry.Unregister(sid)
 
@@ -35,7 +39,10 @@ func SessionHandler(s ssh.Session) {
 	scanner.Split(SplitAt)
 
 	// Send server capablities
-	s.Write([]byte(capabilitesXML()))
+	s.Write([]byte(capabilitesXML(sid)))
+
+	// Release any lock held by this session when it disconnects.
+	defer releaseLockIfHeld(s.Context().(ssh.Context))
 
 	// Read client capablities
 	scanner.Scan()
@@ -56,11 +63,11 @@ func SessionHandler(s ssh.Session) {
 	}
 }
 
-func capabilitesXML() string {
+func capabilitesXML(sid int) string {
 
 	var serverHello Hello
 
-	serverHello.SessionID = nextSessionID()
+	serverHello.SessionID = sid
 	serverHello.Capabilities = append(serverHello.Capabilities, CapNetconf10)
 	serverHello.Capabilities = append(serverHello.Capabilities, CapNetconf11)
 
@@ -248,6 +255,18 @@ func writeOkResponse(session ssh.Session, id string) {
 }
 
 func createErrorXML(err error) string {
+	var lockErr *LockDeniedError
+	if errors.As(err, &lockErr) {
+		rpcErr := RPCError{
+			ErrorType:     "protocol",
+			ErrorTag:      "lock-denied",
+			ErrorSeverity: "error",
+			ErrorMessage:  "Lock is already held by another session",
+		}
+		rpcErr.ErrorInfo.SessionID = lockErr.HolderSessionID
+		out, _ := xml.Marshal(rpcErr)
+		return string(out)
+	}
 	return fmt.Sprintf("<rpc-error><error-type>rpc</error-type><error-severity>error</error-severity><error-message xml:lang=\"en\">%s</error-message></rpc-error>", err.Error())
 }
 
