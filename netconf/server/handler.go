@@ -28,6 +28,9 @@ const (
 
 func SessionHandler(s ssh.Session) {
 
+	globalSessionRegistry.Register(sid, s)
+	defer globalSessionRegistry.Unregister(sid)
+
 	scanner := bufio.NewScanner(s)
 	scanner.Split(SplitAt)
 
@@ -195,10 +198,12 @@ func handleRequest(session ssh.Session, requestNode *xmlquery.Node) (string, err
 		response, err = withAuth(context, "get-schema", func() (string, error) { return FilterSchemaHandler(requestNode) })
 	case "commit":
 		response, err = commitRequestHandler(context, requestNode)
-	case "close-session", "kill-session":
+	case "close-session":
 		return withAuth(context, "close-session", func() (string, error) {
 			return "ok", nil
 		})
+	case "kill-session":
+		return killSessionHandler(context, session, requestNode)
 	case "lock":
 		response, err = lockRequestHandler(context, requestNode)
 	case "unlock":
@@ -423,6 +428,61 @@ func extractMessageId(xmlStr string) string {
 		return "1"
 	}
 	return matches[1]
+}
+
+// killSessionHandler implements RFC 6241 §7.9 <kill-session>.
+// It accepts a mandatory <session-id> element identifying the target session.
+// If the target is the caller's own session-id the call is treated as
+// close-session; otherwise the target session is forcibly terminated.
+func killSessionHandler(ctx ssh.Context, callerSession ssh.Session, requestNode *xmlquery.Node) (string, error) {
+	sidNode := xmlquery.FindOne(requestNode, "//*[local-name()='session-id']/text()")
+	if sidNode == nil {
+		return "", errors.New("session-id element is required for kill-session")
+	}
+
+	targetID, err := strconv.Atoi(sidNode.Data)
+	if err != nil || targetID <= 0 {
+		return "", errors.New("invalid session-id value")
+	}
+
+	callerID, _ := ctx.Value("session-id").(int)
+
+	// RFC §7.9: killing own session is equivalent to close-session.
+	if targetID == callerID {
+		return withAuth(ctx, "kill-session", func() (string, error) {
+			if ctx.Value("auth-type").(string) == "tacacs" {
+				tacConn := ctx.Value("auth").(lib.TacacsAuthenticator)
+				glog.Infof("[TACPLUS] Closing tacacs server connection (kill-session self)")
+				tacConn.Disconnect()
+				ctx.SetValue("auth", nil)
+			}
+			// Always close the caller's session after the response is sent.
+			time.AfterFunc(1*time.Second, func() { callerSession.Close() })
+			return "ok", nil
+		})
+	}
+
+	// Kill a different session — require authorization first.
+	authenticator := ctx.Value("auth").(lib.Authenticator)
+	if !authenticator.Authorize("kill-session", "") {
+		return "", errors.New(fmt.Sprintf("Unauthorized access %s", "kill-session"))
+	}
+	glog.Infof("[TACPLUS] authorization passed kill-session target=%d", targetID)
+
+	targetSession, ok := globalSessionRegistry.Get(targetID)
+	if !ok {
+		return "", errors.New(fmt.Sprintf("No session with session-id %d", targetID))
+	}
+
+	targetSession.Close()
+	glog.Infof("Session %d forcibly terminated by session %d", targetID, callerID)
+
+	if !authenticator.Account("kill-session", "") {
+		return "", errors.New(fmt.Sprintf("Accounting failed cmd:%s", "kill-session"))
+	}
+	glog.Infof("[TACPLUS] accounting passed - kill-session")
+
+	return "ok", nil
 }
 
 func withAuth(context ssh.Context, command string, fn func() (string, error)) (string, error) {
