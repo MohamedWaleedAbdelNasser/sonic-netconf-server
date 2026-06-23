@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"runtime"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"orange/sonic-netconf-server/lib"
@@ -17,7 +18,7 @@ import (
 	"github.com/golang/glog"
 )
 
-var sessionID = 0
+var sessionID uint64
 
 const (
 	delimeter   = "]]>]]>"
@@ -38,6 +39,7 @@ func SessionHandler(s ssh.Session) {
 	if err != nil {
 		writeResponse(s, createErrorResponse("1", err))
 		s.Close()
+		return
 	}
 
 	// Start main loop for incoming rpc calls
@@ -54,8 +56,7 @@ func capabilitesXML() string {
 
 	var serverHello Hello
 
-	sessionID += 1 // handle session id out of bounds
-	serverHello.SessionID = sessionID
+	serverHello.SessionID = nextSessionID()
 	serverHello.Capabilities = append(serverHello.Capabilities, CapNetconf10)
 	serverHello.Capabilities = append(serverHello.Capabilities, CapNetconf11)
 
@@ -82,20 +83,64 @@ func capabilitesXML() string {
 }
 
 func readCapabilities(clientCaps string) error {
-
-	mainNode, err := xmlquery.Parse(strings.NewReader(clientCaps))
-
+	caps, err := parseClientHelloCapabilities(clientCaps)
 	if err != nil {
 		return err
 	}
 
-	helloNode := xmlquery.FindOne(mainNode, "//*[local-name() = 'hello']/*")
-
-	if helloNode == nil {
-		return errors.New("Invalid client capablities, exiting")
+	if !hasCapability(caps, CapNetconf11) && !hasCapability(caps, CapNetconf10) {
+		return errors.New("client hello missing compatible NETCONF base capability")
 	}
 
 	return nil
+}
+
+func nextSessionID() uint64 {
+	return atomic.AddUint64(&sessionID, 1)
+}
+
+func parseClientHelloCapabilities(clientCaps string) ([]string, error) {
+	mainNode, err := xmlquery.Parse(strings.NewReader(clientCaps))
+	if err != nil {
+		return nil, err
+	}
+
+	helloNode := xmlquery.FindOne(mainNode, "/*[local-name() = 'hello']")
+	if helloNode == nil {
+		return nil, errors.New("invalid client hello")
+	}
+
+	if xmlquery.FindOne(helloNode, "./*[local-name() = 'session-id']") != nil {
+		return nil, errors.New("client hello must not include session-id")
+	}
+
+	capNodes := xmlquery.Find(helloNode, "./*[local-name() = 'capabilities']/*[local-name() = 'capability']/text()")
+	if len(capNodes) == 0 {
+		return nil, errors.New("client hello missing capabilities")
+	}
+
+	caps := make([]string, 0, len(capNodes))
+	for _, capNode := range capNodes {
+		capability := strings.TrimSpace(capNode.Data)
+		if capability == "" {
+			continue
+		}
+		caps = append(caps, capability)
+	}
+	if len(caps) == 0 {
+		return nil, errors.New("client hello missing capabilities")
+	}
+
+	return caps, nil
+}
+
+func hasCapability(caps []string, capability string) bool {
+	for _, cap := range caps {
+		if cap == capability {
+			return true
+		}
+	}
+	return false
 }
 
 func process(session ssh.Session, requestStr string) string {
